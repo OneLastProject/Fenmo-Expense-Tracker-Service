@@ -25,6 +25,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.use('/expenses', require('./routes/expenses'));
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
