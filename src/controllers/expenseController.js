@@ -16,26 +16,47 @@ function expenseToResponse(doc) {
 }
 
 function validateCreateBody(body) {
-  const errors = [];
-  if (body.amount == null || (typeof body.amount !== 'number' && isNaN(parseFloat(body.amount))))
-    errors.push('amount is required and must be a number');
-  if (!body.category || typeof body.category !== 'string' || !body.category.trim())
-    errors.push('category is required and must be a non-empty string');
-  if (body.description != null && typeof body.description !== 'string')
-    errors.push('description must be a string');
-  if (!body.date) errors.push('date is required');
-  else {
-    const d = new Date(body.date);
-    if (Number.isNaN(d.getTime())) errors.push('date must be a valid date');
+  const errors = {};
+
+  const amountNum =
+    body.amount != null && (typeof body.amount === 'number' || !isNaN(parseFloat(body.amount)))
+      ? parseFloat(body.amount)
+      : NaN;
+  if (body.amount == null || body.amount === '') {
+    errors.amount = 'Amount is required';
+  } else if (Number.isNaN(amountNum)) {
+    errors.amount = 'Amount must be a number';
+  } else if (amountNum <= 0) {
+    errors.amount = 'Amount cannot be negative or zero';
   }
+
+  if (!body.category || typeof body.category !== 'string' || !body.category.trim()) {
+    errors.category = 'Category cannot be empty';
+  }
+
+  if (body.description == null || typeof body.description !== 'string' || !body.description.trim()) {
+    errors.description = 'Description cannot be empty';
+  }
+
+  if (body.date == null || body.date === '' || (typeof body.date === 'string' && !body.date.trim())) {
+    errors.date = 'Date cannot be empty';
+  } else {
+    const d = new Date(body.date);
+    if (Number.isNaN(d.getTime())) errors.date = 'Date must be a valid date';
+  }
+
   return errors;
 }
 
 async function createExpense(req, res) {
   const validationErrors = validateCreateBody(req.body);
-  if (validationErrors.length > 0) {
+  const hasErrors = Object.keys(validationErrors).length > 0;
+  if (hasErrors) {
     logger.warn('Validation failed for POST /expenses', { details: validationErrors });
-    return res.status(400).json({ error: 'Validation failed', details: validationErrors });
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: validationErrors,
+    });
   }
 
   const amount = mongoose.Types.Decimal128.fromString(String(req.body.amount));
@@ -53,12 +74,17 @@ async function createExpense(req, res) {
   res.status(201).json(responseBody);
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function getExpenses(req, res, next) {
   try {
     const { category, sort } = req.query;
     const filter = {};
     if (category != null && String(category).trim() !== '') {
-      filter.category = String(category).trim();
+      const term = String(category).trim();
+      filter.category = new RegExp(escapeRegex(term), 'i');
     }
     const sortOption = sort === 'date_desc' ? { date: -1 } : {};
     const expenses = await Expense.find(filter).sort(sortOption).lean();
