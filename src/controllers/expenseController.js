@@ -78,16 +78,33 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
+
 async function getExpenses(req, res, next) {
   try {
-    const { category, sort } = req.query;
+    const { category, sort, page: pageParam, limit: limitParam } = req.query;
     const filter = {};
     if (category != null && String(category).trim() !== '') {
       const term = String(category).trim();
       filter.category = new RegExp(escapeRegex(term), 'i');
     }
+
+    const page = Math.max(1, parseInt(pageParam, 10) || DEFAULT_PAGE);
+    const limit = Math.min(
+      MAX_LIMIT,
+      Math.max(1, parseInt(limitParam, 10) || DEFAULT_LIMIT)
+    );
+    const skip = (page - 1) * limit;
+
     const sortOption = sort === 'date_desc' ? { date: -1 } : {};
-    const expenses = await Expense.find(filter).sort(sortOption).lean();
+
+    const [expenses, total] = await Promise.all([
+      Expense.find(filter).sort(sortOption).skip(skip).limit(limit).lean(),
+      Expense.countDocuments(filter),
+    ]);
+
     const list = expenses.map((doc) => ({
       id: doc._id.toString(),
       amount: doc.amount ? parseFloat(doc.amount.toString()) : doc.amount,
@@ -96,7 +113,18 @@ async function getExpenses(req, res, next) {
       date: doc.date,
       created_at: doc.createdAt,
     }));
-    res.json(list);
+
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    res.json({
+      data: list,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    });
   } catch (err) {
     next(err);
   }
